@@ -1,0 +1,29 @@
+prototype(MhsDesign.FusionTypeHints:Component.ValidationTest) < prototype(Neos.Fusion:Component){
+
+  @apply {
+    # iMustNotBeEmpty = null
+    iMustNotBeEmpty = 'NEOS'
+    iMustNotBeEmpty.@validate = 'NotEmpty'
+
+    # iMustBeNeos = 'WordPress'
+    iMustBeNeos = 'NEOS'
+    iMustBeNeos.@validate = 'MhsDesign\\FusionTypeHints\\Validation\\Validator\\NeosValidator'
+
+    iMustHaveAtleast4Charactrers = 'SEO'
+    # iMustHaveAtleast4Charactrers = 'NEOS'
+    iMustHaveAtleast4Charactrers.@validate = 'StringLength'
+    iMustHaveAtleast4Charactrers.@validate.options {
+      minimum = 4
+    }
+  }
+
+  renderer = 'Validation was successful'
+
+  @cache {
+    mode = 'uncached'
+    context {
+      0 = 'none'
+    }
+  }
+
+}

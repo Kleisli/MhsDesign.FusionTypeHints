@@ -2,13 +2,18 @@
 
 namespace MhsDesign\FusionTypeHints\Fusion;
 
-use Duck\Types\IncompatibleTypeError;
-use Duck\Types\Registry;
-use Duck\Types\Type;
+use Neos\Flow\ObjectManagement\ObjectManagerInterface;
+use Neos\Flow\Validation\Validator\ValidatorInterface;
+use Neos\Flow\Validation\ValidatorResolver;
 use Neos\Fusion\Core\Runtime;
+use Neos\Flow\Annotations as Flow;
 
 class TypedRuntime extends Runtime
 {
+
+    #[Flow\Inject]
+    protected ValidatorResolver $validatorResolver;
+
     /**
      * Empty override, to avoid injection settings of this 3. party package
      */
@@ -32,83 +37,43 @@ class TypedRuntime extends Runtime
      */
     public function evaluate(string $fusionPath, $contextObject = null, string $behaviorIfPathNotFound = self::BEHAVIOR_RETURNNULL)
     {
-        self::addDuckTypeAutoloader();
 
         $fusionConfiguration = $this->runtimeConfiguration->forPath($fusionPath);
         $pathValue = parent::evaluate($fusionPath, $contextObject, $behaviorIfPathNotFound);
-        if (isset($fusionConfiguration['__meta']['type']) === false) {
+        if (isset($fusionConfiguration['__meta']['validate']) === false) {
             return $pathValue;
         }
-        $typeHint = $fusionConfiguration['__meta']['type'];
-        try {
-            Type::is($typeHint, $pathValue);
-        } catch (IncompatibleTypeError $e) {
-            throw new RuntimeTypeException("Runtime Type checking for '$fusionPath': " . $e->getMessage(),1641301766);
+        $validateMetaProperty = $fusionConfiguration['__meta']['validate'];
+
+        $validator = $this->getValidator($validateMetaProperty);
+        if($validator == null) {
+            throw new RuntimeTypeException("Did not find validator '$validateMetaProperty' at $fusionPath",1682772255);
         }
+        $validationResult = $validator->validate($pathValue);
+        if($validationResult->hasErrors()){
+            throw new RuntimeTypeException("Runtime Type checking for '$fusionPath': " . $validationResult->getFirstError()->getMessage(),1641301766);
+        }
+
         return $pathValue;
     }
 
     /**
-     * A wrapper around Runtime->evaluateObjectOrRetrieveFromCache for fusion object paths
-     * This wrapper will check for the @ return meta path and continue respective to TypedRuntime->evaluate
-     * Technically, @ return is not necessary and just an alias for @ type
-     * - i dont even know if this wrapper is useful, as every path has a fusion ... right? so @ return could be implemented as alias in TypedRuntime->evaluate?
+     * @param $validateMetaProperty
+     * @return ValidatorInterface
      */
-    protected function evaluateObjectOrRetrieveFromCache($fusionObject, $fusionPath, $fusionConfiguration, $cacheContext)
-    {
-        self::addDuckTypeAutoloader();
-
-        $objectReturnValue = parent::evaluateObjectOrRetrieveFromCache($fusionObject, $fusionPath, $fusionConfiguration, $cacheContext);
-
-        if (isset($fusionConfiguration['__meta']['return']) === false) {
-            return $objectReturnValue;
-        }
-
-        $typeHint = $fusionConfiguration['__meta']['return'];
-        try {
-            Type::is($typeHint, $objectReturnValue);
-        } catch (IncompatibleTypeError $e) {
-            throw new RuntimeTypeException("Runtime Type checking for object in '$fusionPath': " . $e->getMessage(), 1641304414);
-        }
-
-        return $objectReturnValue;
-    }
-
-    /**
-     * The lib attitude\duck-types-php does provide support for some annotations:
-     * https://github.com/attitude/duck-types-php/blob/main/docs/Annotation.md#supported-flow-annotations
-     * For things like checking if an object is the correct one and for 'void' we hook into attitude\duck-types-php and extend it.
-     */
-    protected static function addDuckTypeAutoloader(): void
-    {
-        static $typesGeneratorsSet;
-        if ($typesGeneratorsSet === true) {
-            return;
-        }
-        $typesGeneratorsSet = true;
-
-        Registry::registerAutoloader('phpTypesAutoloader', static function(string $requestedType) {
-            switch (true) {
-                case $requestedType === 'void';
-                    Registry::set($requestedType, static function($checkAgainst) {
-                        if(is_null($checkAgainst)) {
-                            return;
-                        }
-                        throw new IncompatibleTypeError($checkAgainst, "incompatible with void");
-                    });
-                    return;
-
-                // Object instanceof check:
-                // based of class-name like: 'Neos\\ContentRepository\\Domain\\Projection\\Content\\TraversableNodeInterface'
-                case strpos($requestedType, '\\') !== false:
-                    Registry::set($requestedType, static function($checkAgainst) use($requestedType) {
-                        if ($checkAgainst instanceof $requestedType) {
-                            return;
-                        }
-                        throw new IncompatibleTypeError($checkAgainst, "incompatible with object $requestedType");
-                    });
-                    return;
+    protected function getValidator($validateMetaProperty){
+        if(is_string($validateMetaProperty)){
+            $validatorString = $validateMetaProperty;
+            $validatorOptions = [];
+        }else{
+            if(is_array($validateMetaProperty)){
+                $validatorString = $validateMetaProperty['__value'];
+                $validatorOptions = $validateMetaProperty['options'];
             }
-        });
+        }
+
+        return $this->validatorResolver->createValidator($validatorString, $validatorOptions);
+
     }
+
 }
